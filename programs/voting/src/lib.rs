@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
+use anchor_lang::prelude::Clock;
 declare_id!("7AdGgqbFcR4Es6MVXFya2w9UCwzZUtBmo3mSNifjdbu3");
 #[program]
 pub mod election {
     use super::*;
-    pub fn create_election(ctx: Context<CreateElection>,winners:u8) -> Result<()> {
+    pub fn create_election(ctx: Context<CreateElection>,winners:u8,deadline_in_days:i8) -> Result<()> {
         require!(winners > 0,ElectionError::WinnerCountNotAllowed);
         let election = &mut ctx.accounts.election_data;
     
@@ -11,6 +12,8 @@ pub mod election {
         election.stage = ElectionStage::Application;
         election.initiator = ctx.accounts.signer.key();
         election.winners_num = winners;
+        let clock = Clock::get()?;
+        election.deadline = clock.unix_timestamp+(deadline_in_days as i64) *86400;
         Ok(())
     }
 
@@ -37,7 +40,7 @@ pub mod election {
 
     pub fn change_stage(ctx: Context<ChangeStage>,new_stage: ElectionStage) -> Result<()> {
         let election = &mut ctx.accounts.election_data;
-    
+        let clock = Clock::get()?;
         require!(election.stage != ElectionStage::Closed,ElectionError::ElectionIsClosed);
     
         match new_stage {
@@ -45,6 +48,9 @@ pub mod election {
                 return election.close_application();
             },
             ElectionStage::Closed => {
+                if election.deadline>clock.unix_timestamp {
+                    return Err(ElectionError::DeadlineNotReached.into())
+                }
                 return election.close_voting();
             },
             ElectionStage::Application => {
@@ -55,8 +61,9 @@ pub mod election {
 
     pub fn vote(ctx: Context<Vote>) -> Result<()> {
         let election = &mut ctx.accounts.election_data;
-    
+        let clock = Clock::get()?;
         require!(election.stage == ElectionStage::Voting,ElectionError::NotAtVotingStage);
+        require!(election.deadline<=clock.unix_timestamp ,ElectionError::NotAtVotingStage);
     
         let candidate = &mut ctx.accounts.candidate_data;
         let my_vote = &mut ctx.accounts.my_vote;
@@ -76,7 +83,7 @@ pub struct CreateElection<'info> {
     #[account(
         init,
         payer=signer,
-        space= 8 + 8 + 2 + 32 + 1 + 2 * (4 + winners as usize * 8)
+        space= 8 + 8 + 2 + 32 + 1 + 2 * (6 + winners as usize * 8)+64
     )]
     pub election_data: Account<'info,ElectionData>,
     #[account(mut)]
@@ -165,6 +172,7 @@ pub struct ElectionData {
     pub winners_num: u8,
     pub winners_id: Vec<u64>,
     pub winners_votes: Vec<u64>,
+    pub deadline:i64
 }
 
 #[account]
@@ -259,5 +267,6 @@ pub enum ElectionError {
     WrongPublicKey,
     PrivilegeNotAllowed,
     ElectionIsClosed,
-    NotAtVotingStage
+    NotAtVotingStage,
+    DeadlineNotReached
 }
