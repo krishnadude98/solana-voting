@@ -5,6 +5,8 @@ there are voters,candidates and initaor roles
 
 - **Initiator** is the account that creates the election and controls the stages of election like application, voting, ending
 
+  **Note:-Initator can only close the voting if the deadline is reached for the election**
+
 - **Candidates** are the users that want to take part in the election
 
 - **Voters** these are the users that will vote for the candidates the candidate having highes votes wins the election.
